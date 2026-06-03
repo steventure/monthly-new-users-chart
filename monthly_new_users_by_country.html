@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 20px;
+  }
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-bottom: 4px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .subtitle {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 16px;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+    align-items: center;
+  }
+  .group-label {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+  }
+  .group-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+  .group-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .group-btn:hover { background: #334155; color: #e2e8f0; }
+  .group-btn.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+  .country-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 14px;
+  }
+  .pill {
+    padding: 3px 9px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+    opacity: 0.35;
+  }
+  .pill.active { opacity: 1; }
+  .chart-wrap {
+    position: relative;
+    height: 400px;
+  }
+  .note {
+    font-size: 10px;
+    color: #475569;
+    margin-top: 8px;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<h2>Monthly New Users by Country</h2>
+<div class="subtitle">Jun 2024 – May 2026 &middot; Countries averaging &ge;10 new users/month &middot; Click pills to toggle</div>
+
+<div class="controls">
+  <span class="group-label">Show:</span>
+  <div class="group-btns">
+    <button class="group-btn active" id="btn-top3" onclick="selectGroup('top3')">Top 3</button>
+    <button class="group-btn" onclick="selectGroup('mid')">Mid-tier</button>
+    <button class="group-btn" onclick="selectGroup('all')">All</button>
+    <button class="group-btn" onclick="selectGroup('none')">None</button>
+  </div>
+</div>
+
+<div class="country-pills" id="pills"></div>
+
+<div class="chart-wrap">
+  <canvas id="chart"></canvas>
+</div>
+<div class="note" id="scale-note">Linear scale · Hover for values</div>
+
+<script>
+var months = ["2024-06","2024-07","2024-08","2024-09","2024-10","2024-11","2024-12","2025-01","2025-02","2025-03","2025-04","2025-05","2025-06","2025-07","2025-08","2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03","2026-04","2026-05"];
+var monthLabels = months.map(function(m) {
+  var parts = m.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1])-1);
+  return d.toLocaleString('en', {month:'short', year:'2-digit'});
+});
+
+var rawData = {
+  TW:[6975,6958,7981,7096,9495,8071,10266,6720,6552,9288,8179,7765,8467,9382,12482,9491,7511,7184,7596,6067,5361,6713,6744,6914],
+  JP:[5625,5204,4493,5165,5412,5298,5532,6178,5472,5562,5777,5789,5694,5810,5901,5935,5358,4263,4848,4758,3932,4178,4170,4316],
+  KR:[1579,1918,2302,2115,2487,2888,2594,2762,3422,3179,2939,3011,3099,2867,3267,2722,2367,2942,3212,3223,2367,2642,2263,2423],
+  US:[840,906,627,839,937,894,930,1009,813,909,805,673,602,512,454,476,409,389,327,460,430,519,353,260],
+  EG:[671,1216,790,864,854,750,857,591,693,614,575,469,366,393,448,439,593,926,894,744,752,791,1002,893],
+  MY:[247,225,262,203,284,225,172,182,188,234,231,215,214,258,250,248,238,251,211,203,132,147,185,180],
+  HK:[204,200,247,230,282,365,234,202,242,246,246,237,236,222,230,216,162,182,169,153,147,173,164,209],
+  SA:[183,284,183,197,311,253,309,244,263,257,239,201,153,157,114,135,130,123,124,98,82,81,119,122],
+  IN:[46,79,71,153,303,217,200,179,151,242,148,154,96,90,95,108,84,124,119,189,169,219,205,146],
+  SG:[39,142,213,330,391,268,110,140,203,434,40,48,112,174,32,30,22,35,34,38,28,25,27,24]
+};
+
+// Total across ALL countries including those averaging <10/month (from full dataset)
+var totalKey = 'ALL';
+var totalData = [17082,17892,17814,18027,22024,20262,22280,19367,19048,22016,20112,19388,19782,20588,24104,20653,17680,17421,18348,16870,14296,16457,16118,16235];
+rawData[totalKey] = totalData;
+
+// Aug 2025 is index 14; bar starts from Sep 2025 (index 15)
+var aug2025Index = 14;
+var barStartIndex = 15;
+
+// Compute % data for a given country relative to its own Aug 2025 value
+function computePctData(c) {
+  var peak = rawData[c][aug2025Index];
+  if (!peak) return months.map(function() { return null; });
+  return rawData[c].map(function(v, i) {
+    return i >= barStartIndex ? Math.round(v / peak * 1000) / 10 : null;
+  });
+}
+
+// Show bar only when exactly one country is selected, OR only ALL is selected (possibly with others, but ALL is the single-line case)
+function shouldShowBar() {
+  var activeCountries = allEntries.filter(function(c) { return active.has(c); });
+  return activeCountries.length === 1;
+}
+
+function getBarCountry() {
+  return allEntries.filter(function(c) { return active.has(c); })[0];
+}
+
+var countries = Object.keys(rawData).filter(function(c) { return c !== totalKey; }).sort(function(a,b) {
+  var sa = rawData[a].reduce(function(s,v){return s+v;},0);
+  var sb = rawData[b].reduce(function(s,v){return s+v;},0);
+  return sb - sa;
+});
+
+var top3 = countries.slice(0,3);
+var mid = countries.slice(3,10);
+var small = [];
+
+var palette = [
+  '#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6',
+  '#06b6d4','#f97316','#84cc16','#ec4899','#14b8a6',
+  '#a78bfa','#fb923c','#34d399','#f43f5e','#60a5fa',
+  '#fbbf24','#4ade80','#c084fc','#38bdf8','#fb7185',
+  '#a3e635','#67e8f9','#fdba74','#86efac','#d8b4fe',
+  '#fca5a5','#93c5fd','#6ee7b7'
+];
+
+var colorMap = {};
+countries.forEach(function(c, i) { colorMap[c] = palette[i % palette.length]; });
+colorMap[totalKey] = '#ffffff';
+
+var allEntries = [totalKey].concat(countries);
+var active = new Set(top3);
+
+var pillsEl = document.getElementById('pills');
+allEntries.forEach(function(c) {
+  var pill = document.createElement('div');
+  pill.className = active.has(c) ? 'pill active' : 'pill';
+  pill.id = 'pill-' + c;
+  pill.textContent = c;
+  pill.style.background = colorMap[c] + '33';
+  pill.style.color = colorMap[c];
+  pill.style.borderColor = active.has(c) ? colorMap[c] : 'transparent';
+  if (c === totalKey) {
+    pill.style.fontWeight = '700';
+    pill.title = 'Total across all countries';
+  }
+  pill.onclick = function() { toggleCountry(c); };
+  pillsEl.appendChild(pill);
+});
+
+function toggleCountry(c) {
+  if (active.has(c)) { active.delete(c); } else { active.add(c); }
+  updateChart();
+  updatePills();
+}
+
+function selectGroup(g) {
+  if (g === 'all') active = new Set(countries);
+  else if (g === 'none') active = new Set();
+  else if (g === 'top3') active = new Set(top3);
+  else if (g === 'mid') active = new Set(mid);
+  else if (g === 'small') active = new Set(small);
+  updateChart();
+  updatePills();
+  document.querySelectorAll('.group-btn').forEach(function(b) { b.classList.remove('active'); });
+  event.target.classList.add('active');
+}
+
+function updatePills() {
+  allEntries.forEach(function(c) {
+    var p = document.getElementById('pill-' + c);
+    if (active.has(c)) {
+      p.classList.add('active');
+      p.style.borderColor = colorMap[c];
+    } else {
+      p.classList.remove('active');
+      p.style.borderColor = 'transparent';
+    }
+  });
+}
+
+function shouldUseLog() {
+  var activeTop3 = top3.filter(function(c) { return active.has(c); });
+  var activeNonTop3 = mid.concat(small).filter(function(c) { return active.has(c); });
+  if (activeTop3.length > 0 && activeNonTop3.length > 0) return true;
+  if (active.has(totalKey) && activeNonTop3.length > 0) return true;
+  return false;
+}
+
+function buildDatasets() {
+  var ds = allEntries.filter(function(c) { return active.has(c); }).map(function(c) {
+    var isTotal = c === totalKey;
+    return {
+      type: 'line',
+      label: c,
+      data: rawData[c],
+      borderColor: colorMap[c],
+      backgroundColor: colorMap[c] + '15',
+      borderWidth: isTotal ? 2.5 : 1.8,
+      borderDash: isTotal ? [6, 3] : [],
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.3,
+      fill: false,
+      yAxisID: 'y',
+      order: 1
+    };
+  });
+
+  if (shouldShowBar()) {
+    var bc = getBarCountry();
+    var bcColor = colorMap[bc];
+    ds.push({
+      type: 'bar',
+      label: '% of Aug\'25',
+      data: computePctData(bc),
+      backgroundColor: bcColor + '33',
+      borderColor: bcColor + '88',
+      borderWidth: 1,
+      borderRadius: 2,
+      yAxisID: 'yPct',
+      order: 2
+    });
+  }
+
+  return ds;
+}
+
+var ctx = document.getElementById('chart').getContext('2d');
+
+var chart = new Chart(ctx, {
+  type: 'bar',
+  data: { labels: monthLabels, datasets: buildDatasets() },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 250 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f172a',
+        borderColor: '#334155',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
+        padding: 10,
+        callbacks: {
+          label: function(ctx) {
+            if (ctx.dataset.label === '% of Aug\'25') {
+              if (ctx.parsed.y === null) return null;
+              return ' % of Aug\'25: ' + ctx.parsed.y + '%';
+            }
+            return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString();
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: '#1e293b' },
+        ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 15 }
+      },
+      y: {
+        type: 'linear',
+        position: 'left',
+        grid: { color: '#1e293b' },
+        ticks: {
+          color: '#64748b',
+          font: { size: 10 },
+          callback: function(v) { return v >= 1000 ? (v/1000)+'k' : v; }
+        },
+        title: { display: true, text: 'New Users', color: '#475569', font: { size: 11 } }
+      },
+      yPct: {
+        type: 'linear',
+        position: 'right',
+        display: false,
+        min: 0,
+        max: 110,
+        grid: { drawOnChartArea: false },
+        ticks: {
+          color: 'rgba(251, 191, 36, 0.7)',
+          font: { size: 10 },
+          callback: function(v) { return v + '%'; }
+        },
+        title: { display: true, text: '% of Aug \'25 peak', color: 'rgba(251, 191, 36, 0.7)', font: { size: 11 } }
+      }
+    }
+  }
+});
+
+function updateChart() {
+  chart.data.datasets = buildDatasets();
+  var useLog = shouldUseLog();
+  chart.options.scales.y.type = useLog ? 'logarithmic' : 'linear';
+  chart.options.scales.y.title.text = useLog ? 'New Users (log scale)' : 'New Users';
+  chart.options.scales.yPct.display = shouldShowBar();
+  document.getElementById('scale-note').textContent = useLog ? 'Log scale · Hover for values' : 'Linear scale · Hover for values';
+  chart.update();
+}
+</script>
+</body>
+</html>
